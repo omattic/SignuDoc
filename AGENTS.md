@@ -1,3 +1,10 @@
+# Omattic Workspace
+
+- Work in `/home/gnu/signudoc`, Telegram topic `signudoc` (37731).
+- `origin` is `git@github.com:omattic/signudoc.git`; `upstream` is the original `NYLLON-SOFTWARE/SignuDoc`. Push verified task commits to `origin/main`, never upstream.
+- Preserve upstream licenses and attribution. Do not configure production, send signing emails, or provision paid services without a request.
+- Read and maintain `docs/agent/STATE.md` and `docs/agent/RUNBOOK.md`; never commit credentials or real signed documents.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
