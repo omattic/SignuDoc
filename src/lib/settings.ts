@@ -13,6 +13,7 @@ import {
   type SignupPolicy,
 } from "./signup-policy.ts";
 import { getEnv, isHostedMode, type EnvSource } from "./utils/env.ts";
+import type { D1Database } from "@cloudflare/workers-types/index.ts";
 
 // Install-wide settings: one row in app_settings, written by the first-run
 // setup page and by an administrator in Settings.
@@ -206,6 +207,18 @@ function readErrorCode(error: unknown): unknown {
     : undefined;
 }
 
+function isMissingD1Table(
+  error: unknown,
+  table: "user" | "app_settings",
+): boolean {
+  return (
+    error instanceof Error &&
+    new RegExp(`\\bno such table: (?:main\\.)?${table}\\b`, "i").test(
+      error.message,
+    )
+  );
+}
+
 function mapSettingsRow(row: StoredSettingsRow): AppSettings {
   return {
     allowedEmailDomains: row.allowed_email_domains ?? [],
@@ -234,8 +247,35 @@ function mapSettingsRow(row: StoredSettingsRow): AppSettings {
  * settings, and drop the retention period along with it.
  */
 export async function readStoredSettings(
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<AppSettings | null> {
+  if ("prepare" in database) {
+    const row = await database
+      .prepare(`select ${SETTINGS_COLUMNS} from app_settings where id = 1`)
+      .first<
+        Omit<StoredSettingsRow, "allowed_email_domains" | "part11_mode"> & {
+          allowed_email_domains: string;
+          part11_mode: number;
+        }
+      >()
+      .catch((error: unknown) => {
+        if (isMissingD1Table(error, "app_settings")) return null;
+        throw error;
+      });
+    if (!row) return null;
+    const domains: unknown = JSON.parse(row.allowed_email_domains);
+    if (
+      !Array.isArray(domains) ||
+      !domains.every((value) => typeof value === "string")
+    ) {
+      throw new Error("D1 signup domains are invalid.");
+    }
+    return mapSettingsRow({
+      ...row,
+      allowed_email_domains: domains,
+      part11_mode: Boolean(row.part11_mode),
+    });
+  }
   const newest = LATER_SETTINGS_COLUMNS.length;
 
   for (let laterMigrations = newest; ; laterMigrations -= 1) {
@@ -500,8 +540,35 @@ type SetupStateRow = {
 
 /** Reads the setup state straight from the database, with no caching. */
 export async function readSetupState(
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<SetupState> {
+  if ("prepare" in database) {
+    const row = await database
+      .prepare(
+        `select
+      exists (select 1 from "user" where role = 'admin') as has_admin,
+      exists (select 1 from "user") as has_users,
+      (select setup_completed_at from app_settings where id = 1) as setup_completed_at`,
+      )
+      .first<{
+        has_admin: number;
+        has_users: number;
+        setup_completed_at: number | null;
+      }>()
+      .catch((error: unknown) => {
+        if (
+          isMissingD1Table(error, "user") ||
+          isMissingD1Table(error, "app_settings")
+        )
+          return null;
+        throw error;
+      });
+    if (!row) return { status: "unmigrated" };
+    if (row.has_admin) return { status: "complete" };
+    if (!row.has_users && row.setup_completed_at === null)
+      return { status: "fresh" };
+    return { status: "unclaimed" };
+  }
   try {
     const row = await queryOne<SetupStateRow>(
       database,

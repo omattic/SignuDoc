@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { appendD1AuditEvent } from "./audit-chain.mjs";
 import { computeAuditRowHash } from "../src/lib/services/audit.ts";
+import { readSetupState, readStoredSettings } from "../src/lib/settings.ts";
 
 test("D1 migrations enforce the envelope, signer and audit constraints", async () => {
   const runtime = new Miniflare(
@@ -16,6 +17,8 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
   );
   try {
     const db = await runtime.getD1Database("DB");
+    assert.deepEqual(await readSetupState(db), { status: "unmigrated" });
+    assert.equal(await readStoredSettings(db), null);
     for (const name of [
       "0001_rate_limits.sql",
       "0002_auth.sql",
@@ -30,12 +33,20 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
         await db.prepare(statement).run();
       }
     }
+    assert.deepEqual(await readSetupState(db), { status: "fresh" });
+    assert.equal(await readStoredSettings(db), null);
     await db
       .prepare(
         'INSERT INTO "user" (id, name, email, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?)',
       )
       .bind("u1", "User", "u@example.test", 1, 1)
       .run();
+    assert.deepEqual(await readSetupState(db), { status: "unclaimed" });
+    await db
+      .prepare('UPDATE "user" SET role = ? WHERE id = ?')
+      .bind("admin", "u1")
+      .run();
+    assert.deepEqual(await readSetupState(db), { status: "complete" });
     await db
       .prepare(
         "INSERT INTO envelopes (id, user_id, title, source_pdf_key, source_pdf_filename, source_pdf_size_bytes, page_count, source_pdf_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -87,6 +98,18 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
         "INSERT INTO app_settings (created_at, updated_at) VALUES (1, 1)",
       )
       .run();
+    const settings = await readStoredSettings(db);
+    assert.deepEqual(settings.allowedEmailDomains, []);
+    assert.equal(settings.part11Mode, false);
+    await db
+      .prepare(
+        "UPDATE app_settings SET allowed_email_domains = ?, part11_mode = 1 WHERE id = 1",
+      )
+      .bind(JSON.stringify(["example.test"]))
+      .run();
+    const updatedSettings = await readStoredSettings(db);
+    assert.deepEqual(updatedSettings.allowedEmailDomains, ["example.test"]);
+    assert.equal(updatedSettings.part11Mode, true);
     await assert.rejects(
       db
         .prepare(
