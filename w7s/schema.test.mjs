@@ -5,6 +5,11 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { appendD1AuditEvent } from "./audit-chain.mjs";
 import { computeAuditRowHash } from "../src/lib/services/audit.ts";
 import {
+  saveBrandLogo,
+  readBrandLogo,
+  removeBrandLogo,
+} from "../src/lib/brand-logo.ts";
+import {
   closeSignupUntilSetupFinishes,
   markEmailReady,
   readSetupState,
@@ -25,6 +30,7 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
     const db = await runtime.getD1Database("DB");
     assert.deepEqual(await readSetupState(db), { status: "unmigrated" });
     assert.equal(await readStoredSettings(db), null);
+    assert.equal(await readBrandLogo(db), null);
     for (const name of [
       "0001_rate_limits.sql",
       "0002_auth.sql",
@@ -170,6 +176,19 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
       db,
     );
     assert.equal(explicitReady.emailReadyAt, 123);
+    const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+    const logoVersion = await saveBrandLogo(image, db);
+    const logo = await readBrandLogo(db);
+    assert.equal(logo.version, logoVersion);
+    assert.equal(logo.contentType, "image/png");
+    assert.deepEqual(logo.bytes, image);
+    assert.equal(
+      (await readStoredSettings(db)).organizationName,
+      "SignuDoc D1",
+    );
+    await assert.rejects(saveBrandLogo(new Uint8Array([0, 1]), db));
+    await removeBrandLogo(db);
+    assert.equal(await readBrandLogo(db), null);
     await assert.rejects(
       db
         .prepare(

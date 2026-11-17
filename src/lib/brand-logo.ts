@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { D1Database } from "@cloudflare/workers-types/index.ts";
 
 import { MAX_LOGO_BYTES, type LogoContentType } from "./branding.ts";
 import { getDb, queryOne, type DbExecutor } from "./db/connection.ts";
@@ -93,11 +94,25 @@ type LogoRow = {
  */
 export async function saveBrandLogo(
   bytes: Uint8Array,
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<string> {
   const contentType = checkLogoUpload(bytes);
   const version = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+
+  if ("prepare" in database) {
+    await database
+      .prepare(
+        `INSERT INTO app_settings (id, signup_mode, logo_content_type, logo_data, logo_hash, created_at, updated_at)
+      VALUES (1, 'open', ?1, ?2, ?3, ?4, ?4)
+      ON CONFLICT (id) DO UPDATE SET logo_content_type = excluded.logo_content_type,
+        logo_data = excluded.logo_data, logo_hash = excluded.logo_hash, updated_at = excluded.updated_at`,
+      )
+      .bind(contentType, bytes, version, now)
+      .run();
+    invalidateSettingsCache();
+    return version;
+  }
 
   // An install that was never set up has no settings row. Sign-up stays as
   // it was without one: open.
@@ -129,9 +144,20 @@ export async function saveBrandLogo(
 
 /** Removes the logo. Nothing happens when there is none. */
 export async function removeBrandLogo(
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
   now = Math.floor(Date.now() / 1000),
 ): Promise<void> {
+  if ("prepare" in database) {
+    await database
+      .prepare(
+        `UPDATE app_settings SET logo_content_type = NULL, logo_data = NULL,
+      logo_hash = NULL, updated_at = ?1 WHERE id = 1 AND logo_data IS NOT NULL`,
+      )
+      .bind(now)
+      .run();
+    invalidateSettingsCache();
+    return;
+  }
   await database.query(
     `
       update public.app_settings
@@ -150,8 +176,36 @@ export async function removeBrandLogo(
 
 /** The stored logo, or null when there is none (or no column for it yet). */
 export async function readBrandLogo(
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<BrandLogo | null> {
+  if ("prepare" in database) {
+    const row = await database
+      .prepare(
+        "SELECT logo_content_type, logo_data, logo_hash FROM app_settings WHERE id = 1",
+      )
+      .first<{
+        logo_content_type: LogoContentType | null;
+        logo_data: number[] | null;
+        logo_hash: string | null;
+      }>()
+      .catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          /\bno such (?:table: (?:main\.)?app_settings|column: logo_(?:data|hash|content_type))\b/i.test(
+            error.message,
+          )
+        )
+          return null;
+        throw error;
+      });
+    if (!row?.logo_data || !row.logo_content_type || !row.logo_hash)
+      return null;
+    return {
+      bytes: new Uint8Array(row.logo_data),
+      contentType: row.logo_content_type,
+      version: row.logo_hash,
+    };
+  }
   let row: LogoRow | null;
 
   try {
