@@ -204,6 +204,17 @@ function subsetFont(
   }
 }
 
+/** Create a subsetter from a WebAssembly module supplied by the runtime. */
+export async function createFontSubsetter(
+  module: WebAssembly.Module,
+): Promise<
+  (fontBytes: Uint8Array, codePoints: Iterable<number>) => Uint8Array
+> {
+  const instance = await WebAssembly.instantiate(module);
+  const exports = instance.exports as unknown as SubsetterExports;
+  return (fontBytes, codePoints) => subsetFont(exports, fontBytes, codePoints);
+}
+
 function isSpaceSeparator(codePoint: number): boolean {
   return (
     codePoint === 0x20 ||
