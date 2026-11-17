@@ -9,6 +9,7 @@ import {
   markEmailReady,
   readSetupState,
   readStoredSettings,
+  saveSettings,
 } from "../src/lib/settings.ts";
 
 test("D1 migrations enforce the envelope, signer and audit constraints", async () => {
@@ -146,6 +147,29 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
       db,
     );
     assert.equal((await readStoredSettings(db)).emailReadyAt, null);
+    await Promise.all([
+      saveSettings({ organizationName: "SignuDoc D1" }, db),
+      saveSettings({ part11Mode: false }, db),
+      saveSettings({ allowedEmailDomains: ["example.test"] }, db),
+    ]);
+    const concurrentSettings = await readStoredSettings(db);
+    assert.equal(concurrentSettings.organizationName, "SignuDoc D1");
+    assert.equal(concurrentSettings.part11Mode, false);
+    assert.deepEqual(concurrentSettings.allowedEmailDomains, ["example.test"]);
+    await markEmailReady(
+      true,
+      { senderAddress: "sender@example.test", senderAddressFromEnv: false },
+      db,
+    );
+    await saveSettings({ senderAddress: "sender@example.test" }, db);
+    assert.ok((await readStoredSettings(db)).emailReadyAt);
+    await saveSettings({ senderAddress: "new@example.test" }, db);
+    assert.equal((await readStoredSettings(db)).emailReadyAt, null);
+    const explicitReady = await saveSettings(
+      { senderAddress: "third@example.test", emailReadyAt: 123 },
+      db,
+    );
+    assert.equal(explicitReady.emailReadyAt, 123);
     await assert.rejects(
       db
         .prepare(
@@ -199,6 +223,11 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
       assert.equal(rowHash, computeAuditRowHash(lastHash, fields));
       lastHash = rowHash;
     }
+    await db.prepare("DELETE FROM app_settings").run();
+    assert.equal(
+      (await saveSettings({ organizationName: "New install" }, db)).signupMode,
+      "closed",
+    );
     await db.prepare("DELETE FROM app_settings").run();
     await closeSignupUntilSetupFinishes(db);
     assert.equal((await readStoredSettings(db)).signupMode, "closed");

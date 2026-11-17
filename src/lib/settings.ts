@@ -129,6 +129,14 @@ type LaterSettingsColumn = (typeof LATER_SETTINGS_COLUMNS)[number][number];
 type StoredSettingsRow = Omit<AppSettingsRow, LaterSettingsColumn> &
   Partial<Pick<AppSettingsRow, LaterSettingsColumn>>;
 
+type D1SettingsRow = Omit<
+  StoredSettingsRow,
+  "allowed_email_domains" | "part11_mode"
+> & {
+  allowed_email_domains: string;
+  part11_mode: number;
+};
+
 /** The columns of the table after this many of the later migrations. */
 function settingsColumnsAfter(laterMigrations: number): string {
   return [
@@ -237,6 +245,21 @@ function mapSettingsRow(row: StoredSettingsRow): AppSettings {
   };
 }
 
+function mapD1SettingsRow(row: D1SettingsRow): AppSettings {
+  const domains: unknown = JSON.parse(row.allowed_email_domains);
+  if (
+    !Array.isArray(domains) ||
+    !domains.every((value) => typeof value === "string")
+  ) {
+    throw new Error("D1 signup domains are invalid.");
+  }
+  return mapSettingsRow({
+    ...row,
+    allowed_email_domains: domains,
+    part11_mode: Boolean(row.part11_mode),
+  });
+}
+
 /**
  * Reads the stored row. Null when there is none (or no table for it yet).
  *
@@ -252,29 +275,13 @@ export async function readStoredSettings(
   if ("prepare" in database) {
     const row = await database
       .prepare(`select ${SETTINGS_COLUMNS} from app_settings where id = 1`)
-      .first<
-        Omit<StoredSettingsRow, "allowed_email_domains" | "part11_mode"> & {
-          allowed_email_domains: string;
-          part11_mode: number;
-        }
-      >()
+      .first<D1SettingsRow>()
       .catch((error: unknown) => {
         if (isMissingD1Table(error, "app_settings")) return null;
         throw error;
       });
     if (!row) return null;
-    const domains: unknown = JSON.parse(row.allowed_email_domains);
-    if (
-      !Array.isArray(domains) ||
-      !domains.every((value) => typeof value === "string")
-    ) {
-      throw new Error("D1 signup domains are invalid.");
-    }
-    return mapSettingsRow({
-      ...row,
-      allowed_email_domains: domains,
-      part11_mode: Boolean(row.part11_mode),
-    });
+    return mapD1SettingsRow(row);
   }
   const newest = LATER_SETTINGS_COLUMNS.length;
 
@@ -364,8 +371,57 @@ export function toSignupPolicy(settings: AppSettings): SignupPolicy {
  */
 export async function saveSettings(
   update: SettingsUpdate,
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<AppSettings> {
+  if ("prepare" in database) {
+    const columns: Array<[keyof SettingsUpdate, string]> = [
+      ["allowedEmailDomains", "allowed_email_domains"],
+      ["emailReadyAt", "email_ready_at"],
+      ["organizationName", "organization_name"],
+      ["privacyUrl", "privacy_url"],
+      ["senderAddress", "sender_address"],
+      ["setupCompletedAt", "setup_completed_at"],
+      ["signupMode", "signup_mode"],
+      ["supportAddress", "support_address"],
+      ["termsUrl", "terms_url"],
+      ["retentionDays", "retention_days"],
+      ["brandColor", "brand_color"],
+      ["part11Mode", "part11_mode"],
+    ];
+    const provided = columns.filter(([key]) => update[key] !== undefined);
+    const names = provided.map(([, column]) => column);
+    const values = provided.map(([key]) =>
+      key === "allowedEmailDomains"
+        ? JSON.stringify(update[key])
+        : key === "part11Mode"
+          ? update[key]
+            ? 1
+            : 0
+          : update[key],
+    );
+    const assignments = names.map((column) => `${column} = excluded.${column}`);
+    if (
+      update.senderAddress !== undefined &&
+      update.emailReadyAt === undefined
+    ) {
+      assignments.push(
+        "email_ready_at = CASE WHEN app_settings.sender_address IS NOT excluded.sender_address THEN NULL ELSE app_settings.email_ready_at END",
+      );
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const row = await database
+      .prepare(
+        `INSERT INTO app_settings (id, created_at, updated_at${names.map((name) => `, ${name}`).join("")})
+      VALUES (1, ?1, ?1${values.map((_, index) => `, ?${index + 2}`).join("")})
+      ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at${assignments.map((assignment) => `, ${assignment}`).join("")}
+      RETURNING ${SETTINGS_COLUMNS}`,
+      )
+      .bind(now, ...values)
+      .first<D1SettingsRow>();
+    if (!row) throw new Error("D1 settings write returned no row.");
+    invalidateSettingsCache();
+    return mapD1SettingsRow(row);
+  }
   // Read and write under the row's lock, so a save of some fields never
   // writes back a stale value of another (Part 11 mode above all) that a
   // different writer changed in between.
