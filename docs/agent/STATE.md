@@ -31,7 +31,7 @@
 ## 2026-11-17 Native Worker Migration
 
 - The user chose to replace Next.js with a React frontend and a native W7S Worker. The original application remains the functional reference while the port is incomplete.
-- `w7s/worker.mjs` is an isolated native Worker prototype. Its `/health` checks D1 connectivity and reports deployment metadata, but always returns 503 because the product routes are not yet ported. It is not a deployable application and does not serve the frontend.
+- `w7s/worker.mjs` is an isolated native Worker prototype. Its `/health` checks D1 connectivity and reports deployment metadata, but always returns 503 because the product routes are not yet ported. Its read-only `/api/setup/state` shares the D1 setup-state query with the existing app and has been tested in Miniflare. Account creation and the React frontend are not connected. It is not a deployable application.
 
 ## Next Work
 

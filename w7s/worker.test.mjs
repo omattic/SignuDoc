@@ -2,12 +2,20 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
+import { build } from "esbuild";
 
 async function runtime(bindings = {}) {
+  const bundle = await build({
+    entryPoints: [new URL("./worker.mjs", import.meta.url).pathname],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "browser",
+  });
   return new Miniflare(
     convertV4MiniflareOptions({
       modules: true,
-      script: await readFile(new URL("./worker.mjs", import.meta.url), "utf8"),
+      script: bundle.outputFiles[0].text,
       compatibilityDate: "2026-08-06",
       d1Databases: ["DB"],
       bindings,
@@ -74,5 +82,47 @@ test("missing or failed database does not leak errors", async () => {
     assert.equal(response.status, 503);
     assert.equal(JSON.parse(text).database, "unavailable");
     assert.doesNotMatch(text, /secret/);
+  }
+});
+
+test("setup state follows the migrated D1 schema in the Worker", async () => {
+  const mf = await runtime();
+  try {
+    const url = "https://example.test/api/setup/state";
+    let response = await mf.dispatchFetch(url);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { status: "unmigrated" });
+    const db = await mf.getD1Database("DB");
+    for (const name of ["0002_auth.sql", "0004_settings_templates.sql"]) {
+      const sql = await readFile(
+        new URL(`./migrations/${name}`, import.meta.url),
+        "utf8",
+      );
+      for (const statement of sql.split(";").filter((part) => part.trim()))
+        await db.prepare(statement).run();
+    }
+    response = await mf.dispatchFetch(url);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { status: "fresh" });
+    await db
+      .prepare(
+        'INSERT INTO "user" (id, name, email, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?)',
+      )
+      .bind("u1", "User", "u@example.test", 1, 1)
+      .run();
+    assert.deepEqual(await (await mf.dispatchFetch(url)).json(), {
+      status: "unclaimed",
+    });
+    await db
+      .prepare('UPDATE "user" SET role = ? WHERE id = ?')
+      .bind("admin", "u1")
+      .run();
+    assert.deepEqual(await (await mf.dispatchFetch(url)).json(), {
+      status: "complete",
+    });
+    assert.equal((await mf.dispatchFetch(url, { method: "POST" })).status, 405);
+  } finally {
+    await mf.dispose();
   }
 });

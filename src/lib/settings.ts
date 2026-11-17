@@ -1,3 +1,4 @@
+import { readD1SetupState } from "../../w7s/setup-state.mjs";
 import { buildBranding, type Branding } from "./branding.ts";
 import {
   type DbExecutor,
@@ -630,31 +631,7 @@ export async function readSetupState(
   database: DbExecutor | D1Database = getDb(),
 ): Promise<SetupState> {
   if ("prepare" in database) {
-    const row = await database
-      .prepare(
-        `select
-      exists (select 1 from "user" where role = 'admin') as has_admin,
-      exists (select 1 from "user") as has_users,
-      (select setup_completed_at from app_settings where id = 1) as setup_completed_at`,
-      )
-      .first<{
-        has_admin: number;
-        has_users: number;
-        setup_completed_at: number | null;
-      }>()
-      .catch((error: unknown) => {
-        if (
-          isMissingD1Table(error, "user") ||
-          isMissingD1Table(error, "app_settings")
-        )
-          return null;
-        throw error;
-      });
-    if (!row) return { status: "unmigrated" };
-    if (row.has_admin) return { status: "complete" };
-    if (!row.has_users && row.setup_completed_at === null)
-      return { status: "fresh" };
-    return { status: "unclaimed" };
+    return readD1SetupState(database);
   }
   try {
     const row = await queryOne<SetupStateRow>(
