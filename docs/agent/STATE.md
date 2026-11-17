@@ -28,6 +28,11 @@
 - The storage factory accepts an explicit private R2 binding. Its adapter is tested in local Workers for conditional creation, exact bytes, streamed reads, metadata, deletion, and missing objects. No request-scoped R2 binding or browser upload flow is connected yet.
 - `w7s/audit-chain.mjs` prototypes a conditional D1 audit append with compatible hashes and a concurrent append test. It is not connected to the product. In particular, it does not atomically commit an audit entry together with an envelope state change, so it cannot replace the existing transactional signing workflow as written.
 
+## 2026-11-17 Native Worker Migration
+
+- The user chose to replace Next.js with a React frontend and a native W7S Worker. The original application remains the functional reference while the port is incomplete.
+- `w7s/worker.mjs` is an isolated native Worker prototype. Its `/health` checks D1 connectivity and reports deployment metadata, but always returns 503 because the product routes are not yet ported. It is not a deployable application and does not serve the frontend.
+
 ## Next Work
 
-Prove the Next.js build on W7S, then replace PostgreSQL transactions and advisory locks with tested D1-compatible coordination. Port private storage, scheduled jobs, authentication and links, and localize the full signing flow before deploying.
+Port the React interface and application routes, replace PostgreSQL transactions and advisory locks with tested D1-compatible coordination, and connect private storage, scheduled jobs, authentication and links. Resolve PDF WebAssembly compatibility and localize the full signing flow before deployment.

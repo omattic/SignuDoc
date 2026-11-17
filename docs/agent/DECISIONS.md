@@ -11,3 +11,7 @@ The project is new, with no existing data or clients to migrate. Target W7S with
 PostgreSQL transactions and advisory locks protect signing and audit operations. Replace and test those guarantees explicitly during the D1 port; a SQL syntax conversion alone is insufficient. Authentication, generated links, emails, and PDF content must preserve the intended language and domain. Cookies cannot be shared across these unrelated domains.
 
 The requested replacement is the PostgreSQL database layer, not a rewrite of the SignuDoc application. Keep the existing product and its signing and audit guarantees while porting database-dependent behavior.
+
+## 2026-11-17: Native Worker and React migration
+
+Replace Next.js and OpenNext with a React frontend and native W7S Worker backend. Preserve the existing application as the functional reference during the port, including signing, audit integrity, authentication, private document storage, and both language domains. The prototype Worker is isolated from deployment until full workflows and their security guarantees are verified.
