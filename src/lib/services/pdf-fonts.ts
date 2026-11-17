@@ -20,32 +20,7 @@ import type { Color, PDFDocument, PDFFont, PDFPage } from "pdf-lib";
 // Not handled: right-to-left scripts (Arabic, Hebrew) and scripts that need
 // glyph shaping (Thai, the Indic scripts). Those draw as "\uFFFD".
 
-// Each path is spelled out so that Next.js file tracing copies the file into
-// the deployed function.
-const FONT_PATHS = {
-  bold: path.join(process.cwd(), "src", "assets", "fonts", "NotoSans-Bold.ttf"),
-  cjk: path.join(
-    process.cwd(),
-    "src",
-    "assets",
-    "fonts",
-    "NotoSansCJKjp-Regular.ttf",
-  ),
-  regular: path.join(
-    process.cwd(),
-    "src",
-    "assets",
-    "fonts",
-    "NotoSans-Regular.ttf",
-  ),
-  signature: path.join(
-    process.cwd(),
-    "src",
-    "assets",
-    "fonts",
-    "GreatVibes-Regular.ttf",
-  ),
-} as const;
+type FontName = "bold" | "cjk" | "regular" | "signature";
 
 const SUBSETTER_PATH = path.join(
   process.cwd(),
@@ -54,8 +29,6 @@ const SUBSETTER_PATH = path.join(
   "dist",
   "harfbuzz-subset.wasm",
 );
-
-type FontName = keyof typeof FONT_PATHS;
 
 type LoadedFont = {
   bytes: Uint8Array;
@@ -68,7 +41,32 @@ function loadFont(name: FontName): Promise<LoadedFont> {
   let loaded = loadedFonts.get(name);
 
   if (!loaded) {
-    loaded = fs.readFile(FONT_PATHS[name]).then((buffer) => {
+    // Keep each read statically scoped so Next.js does not trace the whole
+    // repository into the server bundle for a dynamic filesystem lookup.
+    const read = (() => {
+      switch (name) {
+        case "bold":
+          return fs.readFile(
+            path.join(process.cwd(), "src/assets/fonts/NotoSans-Bold.ttf"),
+          );
+        case "cjk":
+          return fs.readFile(
+            path.join(
+              process.cwd(),
+              "src/assets/fonts/NotoSansCJKjp-Regular.ttf",
+            ),
+          );
+        case "regular":
+          return fs.readFile(
+            path.join(process.cwd(), "src/assets/fonts/NotoSans-Regular.ttf"),
+          );
+        case "signature":
+          return fs.readFile(
+            path.join(process.cwd(), "src/assets/fonts/GreatVibes-Regular.ttf"),
+          );
+      }
+    })();
+    loaded = read.then((buffer) => {
       const bytes = new Uint8Array(buffer);
 
       return {
