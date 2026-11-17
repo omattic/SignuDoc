@@ -481,9 +481,28 @@ export type CheckedSender = Pick<
 export async function markEmailReady(
   ready: boolean,
   checked: CheckedSender,
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
+
+  if ("prepare" in database) {
+    await database
+      .prepare(
+        `UPDATE app_settings SET email_ready_at = ?1, updated_at = ?2
+      WHERE id = 1 AND (email_ready_at IS NULL) = ?3
+      AND (?4 = 1 OR sender_address IS ?5)`,
+      )
+      .bind(
+        ready ? now : null,
+        now,
+        ready ? 1 : 0,
+        checked.senderAddressFromEnv ? 1 : 0,
+        checked.senderAddressFromEnv ? null : checked.senderAddress,
+      )
+      .run();
+    invalidateSettingsCache();
+    return;
+  }
 
   await database.query(
     `
@@ -516,9 +535,21 @@ export async function markEmailReady(
  * else can register in that gap, or after a setup that failed halfway.
  */
 export async function closeSignupUntilSetupFinishes(
-  database: DbExecutor = getDb(),
+  database: DbExecutor | D1Database = getDb(),
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
+
+  if ("prepare" in database) {
+    await database
+      .prepare(
+        `INSERT INTO app_settings (id, signup_mode, created_at, updated_at)
+      VALUES (1, 'closed', ?1, ?1) ON CONFLICT (id) DO NOTHING`,
+      )
+      .bind(now)
+      .run();
+    invalidateSettingsCache();
+    return;
+  }
 
   await database.query(
     `

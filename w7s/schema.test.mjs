@@ -4,7 +4,12 @@ import { test } from "node:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { appendD1AuditEvent } from "./audit-chain.mjs";
 import { computeAuditRowHash } from "../src/lib/services/audit.ts";
-import { readSetupState, readStoredSettings } from "../src/lib/settings.ts";
+import {
+  closeSignupUntilSetupFinishes,
+  markEmailReady,
+  readSetupState,
+  readStoredSettings,
+} from "../src/lib/settings.ts";
 
 test("D1 migrations enforce the envelope, signer and audit constraints", async () => {
   const runtime = new Miniflare(
@@ -110,6 +115,37 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
     const updatedSettings = await readStoredSettings(db);
     assert.deepEqual(updatedSettings.allowedEmailDomains, ["example.test"]);
     assert.equal(updatedSettings.part11Mode, true);
+    await db
+      .prepare(
+        "UPDATE app_settings SET signup_mode = 'open', sender_address = 'sender@example.test'",
+      )
+      .run();
+    await closeSignupUntilSetupFinishes(db);
+    assert.equal((await readStoredSettings(db)).signupMode, "open");
+    await markEmailReady(
+      true,
+      { senderAddress: "wrong@example.test", senderAddressFromEnv: false },
+      db,
+    );
+    assert.equal((await readStoredSettings(db)).emailReadyAt, null);
+    await markEmailReady(
+      true,
+      { senderAddress: "sender@example.test", senderAddressFromEnv: false },
+      db,
+    );
+    assert.ok((await readStoredSettings(db)).emailReadyAt);
+    await markEmailReady(
+      false,
+      { senderAddress: "wrong@example.test", senderAddressFromEnv: false },
+      db,
+    );
+    assert.ok((await readStoredSettings(db)).emailReadyAt);
+    await markEmailReady(
+      false,
+      { senderAddress: "sender@example.test", senderAddressFromEnv: false },
+      db,
+    );
+    assert.equal((await readStoredSettings(db)).emailReadyAt, null);
     await assert.rejects(
       db
         .prepare(
@@ -163,6 +199,9 @@ test("D1 migrations enforce the envelope, signer and audit constraints", async (
       assert.equal(rowHash, computeAuditRowHash(lastHash, fields));
       lastHash = rowHash;
     }
+    await db.prepare("DELETE FROM app_settings").run();
+    await closeSignupUntilSetupFinishes(db);
+    assert.equal((await readStoredSettings(db)).signupMode, "closed");
   } finally {
     await runtime.dispose();
   }
