@@ -22,6 +22,7 @@
 - `readSetupState` and `readStoredSettings` accept explicit D1 bindings, with local tests for fresh, unclaimed, and complete setup states and settings decoding. Their default remains PostgreSQL until request-scoped D1 integration is complete.
 - `closeSignupUntilSetupFinishes`, `markEmailReady`, and `saveSettings` also accept explicit D1 bindings. Local tests cover signup-rule preservation, stale sender verification, and concurrent updates of different settings. Complete setup still requires the transaction port.
 - Branding logo reads, writes, and removal accept explicit D1 bindings, with local tests for binary round trips, validation, and settings preservation. The app's default binding remains PostgreSQL.
+- The storage factory accepts an explicit private R2 binding. Its adapter is tested in local Workers for conditional creation, exact bytes, streamed reads, metadata, deletion, and missing objects. No request-scoped R2 binding or browser upload flow is connected yet.
 - `w7s/audit-chain.mjs` prototypes a conditional D1 audit append with compatible hashes and a concurrent append test. It is not connected to the product. In particular, it does not atomically commit an audit entry together with an envelope state change, so it cannot replace the existing transactional signing workflow as written.
 
 ## Next Work

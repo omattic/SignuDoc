@@ -3,6 +3,8 @@ import { createBlobStorageService } from "./storage/blob.ts";
 import { resolveStorageDriver } from "./storage/driver.ts";
 import { createLocalStorageService } from "./storage/local.ts";
 import { type StorageService } from "./storage/types.ts";
+import { createR2StorageService } from "./storage/r2.ts";
+import type { R2Bucket } from "@cloudflare/workers-types/index.ts";
 
 export {
   StorageObjectNotFoundError,
@@ -22,6 +24,7 @@ export {
 
 type CreateStorageServiceOptions = {
   env?: EnvSource;
+  r2Bucket?: R2Bucket;
 };
 
 export function buildContentDisposition(
@@ -42,7 +45,9 @@ export function buildContentDisposition(
 
 export function createStorageService({
   env = process.env,
+  r2Bucket,
 }: CreateStorageServiceOptions = {}): StorageService {
+  if (r2Bucket) return createR2StorageService(r2Bucket);
   switch (resolveStorageDriver(env)) {
     case "blob":
       return createBlobStorageService({ env });

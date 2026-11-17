@@ -17,7 +17,7 @@ Follow `README.md`, `CONTRIBUTING.md`, and `docs/self-hosting.md`. The package r
 
 The root `CNAME` lists the two planned W7S domains. It does not itself set DNS or provision HTTPS. The existing application is not yet compatible with D1 or ready for W7S deployment.
 
-Run `npm run test:d1` on Node.js 24 to exercise the prototype D1 schema, rate-limit integration, and SignuDoc auth factory against local Miniflare. The migrations in `w7s/migrations/` are not production-ready and must not be deployed until schema parity and the complete application workflows are verified.
+Run `npm run test:d1` on Node.js 24 to exercise the prototype D1 schema, rate-limit integration, SignuDoc auth factory, and private R2 adapter against local Miniflare. The migrations in `w7s/migrations/` are not production-ready and must not be deployed until schema parity and the complete application workflows are verified.
 
 ## Completion
 
