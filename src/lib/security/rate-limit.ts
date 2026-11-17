@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import type { D1Database } from "@cloudflare/workers-types/index.ts";
+
+import { consumeD1RateLimit } from "../../../w7s/rate-limit.mjs";
 
 import { getDb, type DbExecutor } from "../db/connection.ts";
 
@@ -26,6 +29,7 @@ type RateLimitInput = {
 
 type ConsumeRateLimitOptions = {
   database?: DbExecutor;
+  d1Database?: D1Database;
 };
 
 type MemoryEntry = {
@@ -141,9 +145,15 @@ export async function deleteExpiredRateLimits(
  */
 export async function consumeRateLimit(
   input: RateLimitInput,
-  { database }: ConsumeRateLimitOptions = {},
+  { database, d1Database }: ConsumeRateLimitOptions = {},
 ): Promise<RateLimitDecision> {
   const now = input.now ?? Date.now();
+
+  // Explicitly provided D1 bindings fail closed on errors. Falling back to an
+  // isolate-local counter would silently weaken a shared security limit.
+  if (d1Database) {
+    return consumeD1RateLimit(d1Database, { ...input, now });
+  }
 
   try {
     const executor = database ?? getDb();

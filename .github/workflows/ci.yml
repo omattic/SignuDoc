@@ -29,6 +29,7 @@ jobs:
       # reader does instead of skipping that part.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
       - run: npm test
+      - run: npm run test:d1
       # With nothing configured, as on a first deployment whose database
       # has not been connected yet: the build must not need any of it.
       - run: npm run build

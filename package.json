@@ -20,6 +20,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/**/*.test.ts\" \"db/**/*.test.mjs\"",
+    "test:d1": "node --import tsx --test w7s/*.test.mjs",
     "test:db": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-concurrency=1 \"src/**/*.dbtest.ts\"",
     "test:e2e": "playwright test"
   },
@@ -51,6 +52,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261116.1",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^24",
@@ -60,8 +62,10 @@
     "@types/react-dom": "^19.3.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "miniflare": "5.20261023.0-beta",
     "prettier": "^3.10.0",
     "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   },
   "overrides": {

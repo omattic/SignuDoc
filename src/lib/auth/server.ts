@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { after } from "next/server";
 import type { Pool } from "pg";
+import type { D1Database } from "@cloudflare/workers-types/index.ts";
 import { cache } from "react";
 
 import { type Branding } from "../branding.ts";
@@ -30,9 +31,10 @@ import {
 } from "../utils/env.ts";
 import { escapeHtml } from "../utils/html.ts";
 import { isRunningSetup } from "./setup-context.ts";
+import { evaluateD1SignupRequest } from "./d1-signup.ts";
 
 type CreateAppAuthOptions = {
-  database?: Pool;
+  database?: Pool | D1Database;
   env?: EnvSource;
   includeNextCookies?: boolean;
 };
@@ -373,7 +375,10 @@ export function createAppAuth({
           typeof body.email === "string"
             ? body.email
             : "";
-        const decision = await evaluateSignupRequest(email, env);
+        const decision =
+          "prepare" in database
+            ? await evaluateD1SignupRequest(email, database)
+            : await evaluateSignupRequest(email, env, database);
 
         if (!decision.allowed) {
           throw new APIError("FORBIDDEN", {
@@ -389,11 +394,14 @@ export function createAppAuth({
     rateLimit: {
       customStorage: {
         consume: async (key, rule) => {
-          const decision = await consumeRateLimit({
-            key: `auth:${key}`,
-            limit: rule.max,
-            windowMs: rule.window * 1000,
-          });
+          const decision = await consumeRateLimit(
+            {
+              key: `auth:${key}`,
+              limit: rule.max,
+              windowMs: rule.window * 1000,
+            },
+            "prepare" in database ? { d1Database: database } : { database },
+          );
 
           return {
             allowed: decision.allowed,
@@ -439,10 +447,11 @@ export function createAppAuth({
           return;
         }
 
-        const decision = await evaluateSignupRequest(
-          typeof user.email === "string" ? user.email : "",
-          env,
-        );
+        const email = typeof user.email === "string" ? user.email : "";
+        const decision =
+          "prepare" in database
+            ? await evaluateD1SignupRequest(email, database)
+            : await evaluateSignupRequest(email, env, database);
 
         if (!decision.allowed) {
           return {
